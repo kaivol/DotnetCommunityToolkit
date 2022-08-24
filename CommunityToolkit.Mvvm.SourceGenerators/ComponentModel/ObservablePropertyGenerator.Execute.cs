@@ -864,7 +864,7 @@ partial class ObservablePropertyGenerator
 
             // Construct the generated method as follows:
             //
-            // /// <summary>Executes the logic for when <see cref="<PROPERTY_NAME>"/> ust changed.</summary>
+            // /// <summary>Executes the logic for when <see cref="<PROPERTY_NAME>"/> just changed.</summary>
             // [global::System.CodeDom.Compiler.GeneratedCode("...", "...")]
             // partial void On<PROPERTY_NAME>Changed(<PROPERTY_TYPE> value);
             MemberDeclarationSyntax onPropertyChangedDeclaration =
