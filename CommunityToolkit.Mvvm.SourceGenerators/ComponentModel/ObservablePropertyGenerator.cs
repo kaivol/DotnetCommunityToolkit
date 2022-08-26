@@ -78,7 +78,113 @@ public sealed partial class ObservablePropertyGenerator : IIncrementalGenerator
 
             context.AddSource($"{item.Hierarchy.FilenameHint}.g.cs", compilationUnit.GetText(Encoding.UTF8));
         });
+        
+        // Get all property declarations with at least one attribute
+        IncrementalValuesProvider<IPropertySymbol> propertySymbols =
+            context.SyntaxProvider
+            .CreateSyntaxProvider(
+                static (node, _) => node is PropertyDeclarationSyntax { Parent: ClassDeclarationSyntax or RecordDeclarationSyntax, AttributeLists.Count: > 0 },
+                static (context, _) => context.SemanticModel.GetDeclaredSymbol((PropertyDeclarationSyntax)context.Node)!
+            );
+        
+        // Filter the fields using [DependsOn]
+        IncrementalValuesProvider<IPropertySymbol> propertySymbolsWithAttribute =
+            propertySymbols
+                .Where(static item => item.HasAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.DependsOnAttribute"));
 
+        // Get set of all generated observable properties  
+        // IncrementalValueProvider<ImmutableHashSet<(HierarchyInfo, string)>> observablePropertySet = propertyInfo
+        IncrementalValueProvider<ImmutableDictionary<HierarchyInfo, ImmutableHashSet<string>>> observablePropertySet = propertyInfo
+            .Collect()
+            .Select(static (props, _) => props
+                .GroupBy(
+                    keySelector: static x => x.Hierarchy,
+                    elementSelector: static x => x.Info.PropertyName
+                    // static (o, p) =>
+                )
+                .ToImmutableDictionary(
+                    keySelector: static x => x.Key,
+                    elementSelector: ImmutableHashSet.ToImmutableHashSet,
+                    new HierarchyInfo.Comparer()
+                )
+                // .Select(static p => (p.Hierarchy, p.Info.PropertyName))
+                // .ToImmutableHashSet(new ValueTupleComparer<HierarchyInfo, string>(
+                //         new HierarchyInfo.Comparer(),
+                //         StringComparer.InvariantCulture
+                // ))
+            );
+        
+        // Gather info for all [DependsOn] properties
+        IncrementalValuesProvider<(HierarchyInfo Hierarchy, Result<DependsOnPropertyInfo?> Info)> dependsOnPropertyWithErrors =
+            propertySymbolsWithAttribute.Combine(observablePropertySet)
+            .Select(static (combined, _) =>
+            {
+                (
+                    IPropertySymbol propertySymbol, 
+                    ImmutableDictionary<HierarchyInfo, ImmutableHashSet<string>> observableProperties
+                ) = combined;
+                HierarchyInfo hierarchy = HierarchyInfo.From(propertySymbol.ContainingType);
+
+                (
+                    DependsOnPropertyInfo? propertyInfo, 
+                    ImmutableArray<Diagnostic> diagnostics
+                ) = Execute.TryGetDependsOnInfo(
+                    propertySymbol, 
+                    observableProperties.GetValueOrDefault(hierarchy, ImmutableHashSet<string>.Empty)
+                );
+    
+                return (hierarchy, new Result<DependsOnPropertyInfo?>(propertyInfo, diagnostics));
+            });
+        
+        // Output the diagnostics
+        context.ReportDiagnostics(dependsOnPropertyWithErrors.Select(static (item, _) => item.Info.Errors));
+        
+        // Get the filtered sequence to enable caching
+        IncrementalValuesProvider<(HierarchyInfo Hierarchy, DependsOnPropertyInfo Info)> dependsOnPropertyInfo =
+            dependsOnPropertyWithErrors
+            .Select(static (item, _) => (item.Hierarchy, Info: item.Info.Value))
+            .Where(static item => item.Info is not null)!
+            .WithComparers(HierarchyInfo.Comparer.Default, DependsOnPropertyInfo.Comparer.Default);
+
+        
+        // Group by containing type and [ObservableProperty]
+        IncrementalValuesProvider<(HierarchyInfo Hierarchy, InvertedDependsOnPropertyInfo Propertiey)> groupedDependsOnPropertyInfo =
+            dependsOnPropertyInfo
+            .Collect()
+            .SelectMany(static (values, _) =>
+                values
+                    .SelectMany(static p => p.Info.ObservableProperties.Select(o => (
+                        p.Hierarchy,
+                        ObservableProperty: o,
+                        DependentProperty: p.Info.PropertyName
+                    )))
+                    .GroupBy(
+                        static x => (x.Hierarchy, x.ObservableProperty),
+                        static x => x.DependentProperty,
+                        static (o, p) => (
+                            o.Hierarchy,
+                            new InvertedDependsOnPropertyInfo(
+                                o.ObservableProperty,
+                                p.ToImmutableArray()
+                            )
+                        )
+                    )
+            )
+            .WithComparers(HierarchyInfo.Comparer.Default, InvertedDependsOnPropertyInfo.Comparer.Default);
+
+        
+        // Generate the requested methods
+        context.RegisterSourceOutput(groupedDependsOnPropertyInfo, static (context, item) =>
+        {
+            MemberDeclarationSyntax memberDeclarations = Execute.GetNotifyDependsOnMethodSyntax(item.Propertiey);
+            
+            CompilationUnitSyntax compilationUnit = item.Hierarchy.GetCompilationUnit(
+                ImmutableArray.Create(memberDeclarations)
+            );
+
+            context.AddSource($"{item.Hierarchy.FilenameHint}_{item.Propertiey.ObservablePropertyName}.g.cs", compilationUnit.GetText(Encoding.UTF8));
+        });
+        
         // Gather all property changing names
         IncrementalValueProvider<ImmutableArray<string>> propertyChangingNames =
             propertyInfo

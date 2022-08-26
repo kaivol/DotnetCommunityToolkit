@@ -35,6 +35,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Attributes\NullabilityAttributesGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\INotifyPropertyChangedGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\Models\AttributeInfo.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\Models\DependsOnPropertyInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\Models\INotifyPropertyChangedInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\Models\ObservableRecipientInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ComponentModel\Models\PropertyInfo.cs" />
@@ -54,6 +55,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Diagnostics\Analyzers\UnsupportedCSharpLanguageVersionAnalyzer.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Diagnostics\DiagnosticDescriptors.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Diagnostics\DiagnosticExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Diagnostics\DiagnosticsBuilder.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Extensions\AttributeDataExtensions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Extensions\CompilationExtensions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Extensions\HashCodeExtensions.cs" />
@@ -68,6 +70,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Extensions\TypeDeclarationSyntaxExtensions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Helpers\Comparer{T,TSelf}.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Helpers\HashCode.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Helpers\TupleComparer.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Input\Models\CanExecuteExpressionType.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Input\Models\CommandInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Input\RelayCommandGenerator.cs" />

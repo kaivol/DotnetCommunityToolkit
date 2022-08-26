@@ -507,4 +507,36 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Cannot apply the [RelayCommand] attribute specifying a task scheduler exception flow option to methods mapping to non-asynchronous command types.",
         helpLinkUri: "https://aka.ms/mvvmtoolkit/errors/mvvmtk0031");
+    
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> indicating when <c>[DependsOn]</c> is applied to a field in an invalid type.
+    /// <para>
+    /// Format: <c>"The containing type of property {0}.{1} annotated with [DependsOn] must inherit from ObservableObject, or use [ObservableObject] or [INotifyPropertyChanged]"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor InvalidContainingTypeForDependsOnPropertyError = new DiagnosticDescriptor(
+        id: "MVVMTK0032",
+        title: "Invalid containing type for [DependsOn] property",
+        messageFormat: "The containing type of property {0}.{1} annotated with [DependsOn] must inherit from ObservableObject, or use [ObservableObject] or [INotifyPropertyChanged]",
+        category: typeof(ObservablePropertyGenerator).FullName,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Properties annotated with [DependsOn] must be contained in a type that inherits from ObservableObject or that is annotated with [ObservableObject] or [INotifyPropertyChanged] (including base types).",
+        helpLinkUri: null);
+
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> indicating when the source for a <c>[DependsOn]</c> property is not found.
+    /// <para>
+    /// Format: <c>"The property {0} in type {1} depends on unknown observable property {2}"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor DependsOnSourceNotFoundError = new DiagnosticDescriptor(
+        id: "MVVMTK0033",
+        title: "Source observable property for [DependsOn] property not found",
+        messageFormat: "The property {0} in type {1} depends on unknown observable property {2}",
+        category: typeof(ObservablePropertyGenerator).FullName,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Properties referenced in [DependsOn] attributes must be generated observable properties.",
+        helpLinkUri: null);
 }

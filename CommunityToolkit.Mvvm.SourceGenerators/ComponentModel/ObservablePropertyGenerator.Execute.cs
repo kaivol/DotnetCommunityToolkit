@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Globalization;
@@ -205,13 +206,13 @@ partial class ObservablePropertyGenerator
         }
 
         /// <summary>
-        /// Validates the containing type for a given field being annotated.
+        /// Validates the containing type for a given symbol being annotated.
         /// </summary>
-        /// <param name="fieldSymbol">The input <see cref="IFieldSymbol"/> instance to process.</param>
+        /// <param name="symbol">The input <see cref="ISymbol"/> instance to process.</param>
         /// <param name="shouldInvokeOnPropertyChanging">Whether or not property changing events should also be raised.</param>
-        /// <returns>Whether or not the containing type for <paramref name="fieldSymbol"/> is valid.</returns>
+        /// <returns>Whether or not the containing type for <paramref name="symbol"/> is valid.</returns>
         private static bool IsTargetTypeValid(
-            IFieldSymbol fieldSymbol,
+            ISymbol symbol,
             out bool shouldInvokeOnPropertyChanging)
         {
             // The [ObservableProperty] attribute can only be used in types that are known to expose the necessary OnPropertyChanged and OnPropertyChanging methods.
@@ -219,9 +220,9 @@ partial class ObservablePropertyGenerator
             //   - It inherits from ObservableObject (in which case it also implements INotifyPropertyChanging).
             //   - It has the [ObservableObject] attribute (on itself or any of its base types).
             //   - It has the [INotifyPropertyChanged] attribute (on itself or any of its base types).
-            bool isObservableObject = fieldSymbol.ContainingType.InheritsFromFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.ObservableObject");
-            bool hasObservableObjectAttribute = fieldSymbol.ContainingType.HasOrInheritsAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.ObservableObjectAttribute");
-            bool hasINotifyPropertyChangedAttribute = fieldSymbol.ContainingType.HasOrInheritsAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.INotifyPropertyChangedAttribute");
+            bool isObservableObject = symbol.ContainingType.InheritsFromFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.ObservableObject");
+            bool hasObservableObjectAttribute = symbol.ContainingType.HasOrInheritsAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.ObservableObjectAttribute");
+            bool hasINotifyPropertyChangedAttribute = symbol.ContainingType.HasOrInheritsAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.INotifyPropertyChangedAttribute");
 
             shouldInvokeOnPropertyChanging = isObservableObject || hasObservableObjectAttribute;
 
@@ -741,6 +742,16 @@ partial class ObservablePropertyGenerator
                             IdentifierName(propertyName))))));
             }
 
+            // Add the NotifyDependsOn() call:
+            //
+            // <PROPERTY_NAME>NotifyDependsOn();
+            setterStatements.Add(
+                ExpressionStatement(InvocationExpression(
+                    IdentifierName($"{propertyInfo.PropertyName}NotifyDependsOn")
+                ))
+            );
+
+
             // Gather the statements to notify commands
             foreach (string commandName in propertyInfo.NotifiedCommandNames)
             {
@@ -880,7 +891,28 @@ partial class ObservablePropertyGenerator
                     .WithOpenBracketToken(Token(TriviaList(Comment($"/// <summary>Executes the logic for when <see cref=\"{propertyInfo.PropertyName}\"/> just changed.</summary>")), SyntaxKind.OpenBracketToken, TriviaList())))
                 .WithSemicolonToken(Token(SyntaxKind.SemicolonToken));
 
-            return ImmutableArray.Create(onPropertyChangingDeclaration, onPropertyChangedDeclaration);
+            // Construct the generated method as follows:
+            //
+            // /// <summary>Notify properties marked with [DependsOn(...)]</summary>
+            // [global::System.CodeDom.Compiler.GeneratedCode("...", "...")]
+            // partial void <PROPERTY_NAME>NotifyDependsOn();
+            MemberDeclarationSyntax onPropertyChangedDependsOnDeclaration =
+                MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), Identifier($"{propertyInfo.PropertyName}NotifyDependsOn"))
+                .AddModifiers(Token(SyntaxKind.PartialKeyword))
+                .AddAttributeLists(
+                    AttributeList(SingletonSeparatedList(
+                        Attribute(IdentifierName("global::System.CodeDom.Compiler.GeneratedCode"))
+                        .AddArgumentListArguments(
+                            AttributeArgument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(typeof(ObservablePropertyGenerator).FullName))),
+                            AttributeArgument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(typeof(ObservablePropertyGenerator).Assembly.GetName().Version.ToString()))))))
+                    .WithOpenBracketToken(Token(TriviaList(Comment($"/// <summary>Notify properties marked with [DependsOn(\"{propertyInfo.PropertyName}\")]</summary>")), SyntaxKind.OpenBracketToken, TriviaList())))
+                .WithSemicolonToken(Token(SyntaxKind.SemicolonToken));
+
+            return ImmutableArray.Create(
+                onPropertyChangingDeclaration, 
+                onPropertyChangedDeclaration,
+                onPropertyChangedDependsOnDeclaration
+            );
         }
 
         /// <summary>
@@ -1002,6 +1034,90 @@ partial class ObservablePropertyGenerator
             }
 
             return $"{char.ToUpper(propertyName[0], CultureInfo.InvariantCulture)}{propertyName.Substring(1)}";
+        }
+
+        /// <summary>
+        /// Process [DependsOn] property
+        /// </summary>
+        /// <param name="propertySymbol">The property to process</param>
+        /// <param name="observableProperties">Set of all observable properties</param>
+        /// <returns></returns>
+        public static (DependsOnPropertyInfo?, ImmutableArray<Diagnostic>) TryGetDependsOnInfo(
+            IPropertySymbol propertySymbol, 
+            ImmutableHashSet<string> observableProperties
+        )
+        {
+            // Validate the target type
+            if (!IsTargetTypeValid(propertySymbol, out bool _))
+            {
+                return (null, DiagnosticsBuilder.Create(
+                    InvalidContainingTypeForDependsOnPropertyError,
+                    propertySymbol,
+                    propertySymbol.ContainingType,
+                    propertySymbol.Name
+                ));
+            }
+            
+            // Get dependencies from attributes
+            IEnumerable<string> dependencyCandidates = propertySymbol.GetAttributes()
+                .Where(attributeData =>
+                    attributeData.AttributeClass?.HasFullyQualifiedName(
+                        "global::CommunityToolkit.Mvvm.ComponentModel.DependsOnAttribute"
+                    ) == true
+                )
+                .SelectMany(attributeData => attributeData.GetConstructorArguments<string>())
+                .OfType<string>();
+            
+            DiagnosticsBuilder diagnostics = new();
+            
+            ImmutableArray<string>.Builder dependencyNames = ImmutableArray.CreateBuilder<string>();
+
+            // Verify candidates, emit diagnostic if it is not an observable property
+            foreach (string dependency in dependencyCandidates) {
+                if (observableProperties.Contains(dependency))
+                {
+                    dependencyNames.Add(dependency);
+                }
+                else
+                {
+                    diagnostics.Add(
+                        DependsOnSourceNotFoundError,
+                        propertySymbol,
+                        propertySymbol.Name,
+                        propertySymbol.ContainingType,
+                        dependency
+                    );
+                }
+            }
+            return (
+                new DependsOnPropertyInfo(propertySymbol.Name, dependencyNames.ToImmutable()), 
+                diagnostics.Build()
+            );
+        }
+
+        /// <summary>
+        /// Get Method declaration for the NotifyDependsOn method
+        /// </summary>
+        /// <param name="info"></param>
+        /// <returns></returns>
+        public static MethodDeclarationSyntax GetNotifyDependsOnMethodSyntax(InvertedDependsOnPropertyInfo info)
+        {
+            IEnumerable<ExpressionStatementSyntax> expressions = info.DependentProperties.Select(d =>
+                ExpressionStatement(InvocationExpression(IdentifierName("OnPropertyChanged"))
+                    .AddArgumentListArguments(
+                        Argument(ParseExpression(
+                            @$"new global::System.ComponentModel.PropertyChangedEventArgs(""{d}"")"
+                        ))
+                    )
+                )
+            );
+            
+            return MethodDeclaration(
+                PredefinedType(Token(SyntaxKind.VoidKeyword)), 
+                Identifier($"{info.ObservablePropertyName}NotifyDependsOn")
+            )
+                .AddModifiers(Token(SyntaxKind.PartialKeyword))
+                .WithBody(Block(expressions));
         }
     }
 }
