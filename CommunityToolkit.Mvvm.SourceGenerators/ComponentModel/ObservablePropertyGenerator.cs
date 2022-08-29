@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -93,27 +94,22 @@ public sealed partial class ObservablePropertyGenerator : IIncrementalGenerator
                 .Where(static item => item.HasAttributeWithFullyQualifiedName("global::CommunityToolkit.Mvvm.ComponentModel.DependsOnAttribute"));
 
         // Get set of all generated observable properties  
-        // IncrementalValueProvider<ImmutableHashSet<(HierarchyInfo, string)>> observablePropertySet = propertyInfo
         IncrementalValueProvider<ImmutableDictionary<HierarchyInfo, ImmutableHashSet<string>>> observablePropertySet = propertyInfo
             .Collect()
             .Select(static (props, _) => props
                 .GroupBy(
                     keySelector: static x => x.Hierarchy,
+                    comparer: HierarchyInfo.Comparer.Default,
                     elementSelector: static x => x.Info.PropertyName
-                    // static (o, p) =>
                 )
                 .ToImmutableDictionary(
                     keySelector: static x => x.Key,
-                    elementSelector: ImmutableHashSet.ToImmutableHashSet,
-                    new HierarchyInfo.Comparer()
+                    keyComparer: HierarchyInfo.Comparer.Default,
+                    elementSelector: ImmutableHashSet.ToImmutableHashSet
                 )
-                // .Select(static p => (p.Hierarchy, p.Info.PropertyName))
-                // .ToImmutableHashSet(new ValueTupleComparer<HierarchyInfo, string>(
-                //         new HierarchyInfo.Comparer(),
-                //         StringComparer.InvariantCulture
-                // ))
             );
-        
+
+
         // Gather info for all [DependsOn] properties
         IncrementalValuesProvider<(HierarchyInfo Hierarchy, Result<DependsOnPropertyInfo?> Info)> dependsOnPropertyWithErrors =
             propertySymbolsWithAttribute.Combine(observablePropertySet)
@@ -158,7 +154,12 @@ public sealed partial class ObservablePropertyGenerator : IIncrementalGenerator
                         ObservableProperty: o,
                         DependentProperty: p.Info.PropertyName
                     )))
-                    .GroupBy(
+                    .GroupBy<
+                        (HierarchyInfo Hierarchy, string ObservableProperty, string DependentProperty),
+                        (HierarchyInfo Hierarchy, string ObservableProperty),
+                        string,
+                        (HierarchyInfo, InvertedDependsOnPropertyInfo)
+                    >(
                         static x => (x.Hierarchy, x.ObservableProperty),
                         static x => x.DependentProperty,
                         static (o, p) => (
@@ -167,6 +168,10 @@ public sealed partial class ObservablePropertyGenerator : IIncrementalGenerator
                                 o.ObservableProperty,
                                 p.ToImmutableArray()
                             )
+                        ),
+                        new TupleComparer<HierarchyInfo, string>(
+                            HierarchyInfo.Comparer.Default,
+                            StringComparer.Ordinal
                         )
                     )
             )
