@@ -1427,6 +1427,45 @@ public class Test_SourceGeneratorsDiagnostics
 
         VerifyGeneratedDiagnostics<RelayCommandGenerator>(source, "MVVMTK0031");
     }
+    [TestMethod]
+    public void InvalidContainingTypeForDependsOnProperty()
+    {
+        
+        string source = @"
+            using CommunityToolkit.Mvvm.ComponentModel;
+
+            namespace MyApp
+            {
+                public partial class MyViewModel : INotifyPropertyChanged
+                {
+                    [DependsOn]
+                    public int Number => 1;
+
+                    public event PropertyChangedEventHandler PropertyChanged;
+                }
+            }";
+
+        VerifyGeneratedDiagnostics<ObservablePropertyGenerator>(source, "MVVMTK0032");
+    }
+
+    [TestMethod]
+    public void SourceForDependsOnPropertyNotFound()
+    {
+        
+        string source = @"
+            using CommunityToolkit.Mvvm.ComponentModel;
+
+            namespace MyApp
+            {
+                public partial class MyViewModel : ObservableObject
+                {
+                    [DependsOn(""Foo"")]
+                    public int Number => 1;
+                }
+            }";
+
+        VerifyGeneratedDiagnostics<ObservablePropertyGenerator>(source, "MVVMTK0033");
+    }
 
     /// <summary>
     /// Verifies the diagnostic errors for a given analyzer, and that all available source generators can run successfully with the input source (including subsequent compilation).
